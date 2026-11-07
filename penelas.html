@@ -1,0 +1,385 @@
+ <!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>محاكاة الحركة الاهتزازية الأفقية</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    background: linear-gradient(160deg, #0f172a, #1e293b);
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.3rem;
+    margin: 8px 0 18px;
+    color: #93c5fd;
+  }
+  .container {
+    max-width: 700px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .panel {
+    background: #111827;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    background: #0b1220;
+    border-radius: 10px;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+    justify-content: center;
+  }
+  .ctrl-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 110px;
+  }
+  .ctrl-group label {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    margin-bottom: 4px;
+  }
+  .ctrl-group span {
+    font-weight: bold;
+    color: #38bdf8;
+  }
+  input[type=range] { width: 130px; }
+  .buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 4px;
+  }
+  button {
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  button:hover { background: #1d4ed8; }
+  button.secondary { background: #475569; }
+  button.secondary:hover { background: #334155; }
+  .info {
+    text-align: center;
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    margin-top: 6px;
+  }
+  .note {
+    text-align: center;
+    font-size: 0.8rem;
+    color: #f59e0b;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<h1>محاكاة الحركة الاهتزازية الأفقية (يمين ⇄ يسار) ورسم منحناها الجيبي</h1>
+<div class="container">
+
+  <div class="panel">
+    <canvas id="mainCanvas" height="520"></canvas>
+    <div class="note">الجسم يهتز يمينًا ويسارًا في الأعلى، والمنحنى يُرسم أسفله بنفس المحور الأفقي (الموضع x) — الخط المتقطع العمودي يربط الجسم بالنقطة المقابلة على المنحنى لحظيًا</div>
+  </div>
+
+  <div class="panel controls">
+    <div class="ctrl-group">
+      <label>السعة A (cm) <span id="ampVal">3</span></label>
+      <input type="range" id="amp" min="1" max="5" step="0.5" value="3">
+    </div>
+    <div class="ctrl-group">
+      <label>الدور T (s) <span id="periodVal">2.0</span></label>
+      <input type="range" id="period" min="0.5" max="5" step="0.1" value="2.0">
+    </div>
+    <div class="ctrl-group">
+      <label>الطور الابتدائي φ° <span id="phaseVal">0</span></label>
+      <input type="range" id="phase" min="0" max="360" step="10" value="0">
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="buttons">
+      <button id="playBtn">▶ تشغيل</button>
+      <button id="resetBtn" class="secondary">↺ إعادة</button>
+    </div>
+    <div class="info" id="equationLine">x(t) = 3 cos(π t + 0°)</div>
+    <div class="info" id="liveInfo">t = 0.00 s &nbsp; | &nbsp; x = 3.00 cm &nbsp; | &nbsp; v = 0.00 cm/s</div>
+  </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+
+const ampSlider = document.getElementById('amp');
+const periodSlider = document.getElementById('period');
+const phaseSlider = document.getElementById('phase');
+const ampVal = document.getElementById('ampVal');
+const periodVal = document.getElementById('periodVal');
+const phaseVal = document.getElementById('phaseVal');
+const playBtn = document.getElementById('playBtn');
+const resetBtn = document.getElementById('resetBtn');
+const equationLine = document.getElementById('equationLine');
+const liveInfo = document.getElementById('liveInfo');
+
+let A = parseFloat(ampSlider.value);
+let T = parseFloat(periodSlider.value);
+let phiDeg = parseFloat(phaseSlider.value);
+let running = false;
+let t = 0;
+let lastTime = null;
+const timeWindow = 8;
+const history = [];
+
+function resizeCanvas() {
+  const ratio = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.height;
+  canvas.width = w * ratio;
+  canvas.height = h * ratio;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+}
+
+function omega() { return 2 * Math.PI / T; }
+function phiRad() { return phiDeg * Math.PI / 180; }
+function x_of_t(time) { return A * Math.cos(omega() * time + phiRad()); }
+function v_of_t(time) { return -A * omega() * Math.sin(omega() * time + phiRad()); }
+
+function updateEquation() {
+  equationLine.textContent = `x(t) = ${A} cos(${(omega()).toFixed(2)} t + ${phiDeg}°)   [الوحدات: cm , s]`;
+}
+
+// تخطيط عام: المسار الأفقي في الأعلى، والمنحنى أسفله
+// المحور الأفقي (الموضع x) مشترك تمامًا بينهما بنفس مقياس البكسل ونفس مركز x=0
+// محور الزمن في المنحنى رأسي (ينمو نحو الأسفل): اللحظة الحالية دائمًا أعلى المنحنى، ملاصقة للمسار
+function draw() {
+  const w = canvas.clientWidth;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const padSide = 55;
+  const centerX = w / 2;
+  const maxA = 5.5;
+  const pxPerCm = ((w - 2 * padSide) / 2) / maxA;
+
+  const trackY = 70;      // ارتفاع خط المسار
+  const trackTop = 18;    // بداية منطقة المسار (تعليق الزنبرك)
+  const gapH = 26;        // فجوة بين المسار والمنحنى
+  const graphTop = trackY + gapH;
+  const graphBottom = h - 34;
+  const plotH = graphBottom - graphTop;
+
+  // ===== المسار الأفقي =====
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padSide - 10, trackY);
+  ctx.lineTo(w - padSide + 10, trackY);
+  ctx.stroke();
+
+  // خط التوازن x=0
+  ctx.strokeStyle = '#475569';
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  ctx.moveTo(centerX, trackY - 25);
+  ctx.lineTo(centerX, trackY + 25);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#64748b';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('x=0', centerX, trackY - 32);
+
+  const xNow = x_of_t(t);
+  const ballX = centerX + xNow * pxPerCm;
+
+  // جدار وزنبرك أفقي من اليمين (نقطة تعليق ثابتة) إلى الجسم
+  const wallX = w - padSide + 10;
+  ctx.fillStyle = '#475569';
+  ctx.fillRect(wallX - 4, trackY - 22, 8, 44);
+
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 1.5;
+  const coils = 12;
+  const springLen = wallX - ballX - 16;
+  ctx.beginPath();
+  ctx.moveTo(wallX, trackY);
+  for (let i = 0; i <= coils; i++) {
+    const cx = wallX - (springLen * i / coils);
+    const cy = trackY + (i % 2 === 0 ? -8 : 8);
+    ctx.lineTo(cx, cy);
+  }
+  ctx.lineTo(ballX + 16, trackY);
+  ctx.stroke();
+
+  // الجسم (كرة)
+  const grad = ctx.createRadialGradient(ballX-4, trackY-4, 3, ballX, trackY, 15);
+  grad.addColorStop(0, '#7dd3fc');
+  grad.addColorStop(1, '#0284c7');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(ballX, trackY, 15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#e0f2fe';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // ===== منطقة المنحنى (أسفل) =====
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(centerX, graphTop);
+  ctx.lineTo(centerX, graphBottom);
+  ctx.moveTo(padSide - 10, graphTop);
+  ctx.lineTo(w - padSide + 10, graphTop);
+  ctx.stroke();
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('x (cm)', centerX, graphTop - 8);
+  ctx.save();
+  ctx.translate(padSide - 30, graphTop + 30);
+  ctx.textAlign = 'center';
+  ctx.fillText('t (s)', 0, 0);
+  ctx.restore();
+
+  const tStart = Math.max(0, t - timeWindow);
+
+  // خطوط شبكة زمنية أفقية (كل ثانية)
+  ctx.strokeStyle = '#1e293b';
+  ctx.fillStyle = '#475569';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  for (let tt = Math.ceil(tStart); tt <= tStart + timeWindow; tt++) {
+    const gy = graphTop + ((tt - tStart) / timeWindow) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(padSide - 10, gy);
+    ctx.lineTo(w - padSide + 10, gy);
+    ctx.stroke();
+    ctx.fillText(tt + '', padSide - 14, gy + 3);
+  }
+
+  // منحنى x(t) — الأحدث أعلى المنحنى (ملاصق للمسار)، الأقدم أسفل
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let started = false;
+  for (const pt of history) {
+    if (pt.t < tStart) continue;
+    const gx = centerX + pt.x * pxPerCm;
+    const gy = graphTop + ((t - pt.t) / timeWindow) * plotH;
+    if (!started) { ctx.moveTo(gx, gy); started = true; }
+    else ctx.lineTo(gx, gy);
+  }
+  ctx.stroke();
+
+  // النقطة الحالية (أعلى المنحنى مباشرة)
+  const curveX = ballX;
+  const curveY = graphTop;
+  ctx.fillStyle = '#f87171';
+  ctx.beginPath();
+  ctx.arc(curveX, curveY, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ===== الخط الواصل العمودي بين الجسم ونقطة المنحنى (نفس الإحداثي x دائمًا) =====
+  ctx.strokeStyle = '#f87171';
+  ctx.lineWidth = 1.3;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath();
+  ctx.moveTo(ballX, trackY + 16);
+  ctx.lineTo(curveX, curveY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function updateLiveInfo() {
+  liveInfo.textContent = `t = ${t.toFixed(2)} s   |   x = ${x_of_t(t).toFixed(2)} cm   |   v = ${v_of_t(t).toFixed(2)} cm/s`;
+}
+
+function step(timestamp) {
+  if (!running) return;
+  if (lastTime === null) lastTime = timestamp;
+  const dt = (timestamp - lastTime) / 1000;
+  lastTime = timestamp;
+  t += dt;
+  history.push({ t, x: x_of_t(t) });
+  while (history.length && history[0].t < t - timeWindow - 1) history.shift();
+  draw();
+  updateLiveInfo();
+  requestAnimationFrame(step);
+}
+
+function resetAll() {
+  running = false;
+  lastTime = null;
+  t = 0;
+  history.length = 0;
+  history.push({ t: 0, x: x_of_t(0) });
+  playBtn.textContent = '▶ تشغيل';
+  draw();
+  updateLiveInfo();
+}
+
+playBtn.addEventListener('click', () => {
+  running = !running;
+  playBtn.textContent = running ? '⏸ إيقاف مؤقت' : '▶ تشغيل';
+  if (running) {
+    lastTime = null;
+    requestAnimationFrame(step);
+  }
+});
+
+resetBtn.addEventListener('click', resetAll);
+
+ampSlider.addEventListener('input', () => {
+  A = parseFloat(ampSlider.value);
+  ampVal.textContent = A;
+  updateEquation();
+  if (!running) draw();
+});
+periodSlider.addEventListener('input', () => {
+  T = parseFloat(periodSlider.value);
+  periodVal.textContent = T.toFixed(1);
+  updateEquation();
+  if (!running) draw();
+});
+phaseSlider.addEventListener('input', () => {
+  phiDeg = parseFloat(phaseSlider.value);
+  phaseVal.textContent = phiDeg;
+  updateEquation();
+  if (!running) draw();
+});
+
+window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+
+resizeCanvas();
+updateEquation();
+resetAll();
+</script>
+</body>
+</html>
